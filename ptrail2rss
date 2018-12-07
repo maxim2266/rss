@@ -51,7 +51,7 @@ cat <<EOF
 <rss version="2.0">
 <channel>
   <title>The Paper Trail</title>
-  <link>$BASE_URL/</link>
+  <link>$BASE_URL</link>
   <description>Distributed systems and data processing</description>
   <language>en-us</language>
   <pubDate>$NOW</pubDate>
