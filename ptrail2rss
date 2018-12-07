@@ -4,8 +4,18 @@ set -o pipefail
 
 # URL
 BASE_URL=https://www.the-paper-trail.org
-# URL=$BASE_URL
-URL=in.html
+URL=$BASE_URL
+# URL=in.html
+
+# temporary files
+TMP="$(mktemp -d)"
+
+trap 'rm -rf "$TMP"' EXIT SIGTERM SIGINT SIGQUIT SIGHUP
+
+SRC="$TMP/src.html"
+TITLES="$TMP/titles"
+DATES="$TMP/dates"
+URLs="$TMP/URLs"
 
 # process web page
 hxnormalize -s -x -l 1000000 $URL \
@@ -13,24 +23,24 @@ hxnormalize -s -x -l 1000000 $URL \
 | hxselect '.post-preview' \
 | hxremove '.fa-clock-o,.fa-calendar-o,.post-read-more,.post-entry'	\
 | sed '/^[[:space:]]*$/d' \
-| tr -s $'\n' $' ' > src.html
+| tr -s $'\n' $' ' > "$SRC"
 
 # extract titles
-hxextract '.post-title' src.html \
+hxextract '.post-title' "$SRC" \
 | sed 's/[[:space:]]*<\/h2>[[:space:]]*/\n/g' \
 | sed -E 's/^[[:space:]]*[^>]+>[[:space:]]*(.+)$/\1/' \
-| sed -E 's/[[:space:]]+/ /g' > titles
+| sed -E 's/[[:space:]]+/ /g' > "$TITLES"
 
 # extract publication dates
-hxselect -c '.post-meta' < src.html \
+hxselect -c '.post-meta' < "$SRC" \
 | tr -s $')' $'\n' \
 | grep -oE '[A-Z][a-z]+ [[:digit:]]{1,2}, 20[[:digit:]]{2}'	\
-| xargs -n 1 -L 1 -I % date --rfc-email -d "%" > dates
+| TZ="America/New_York" xargs -n 1 -L 1 -I % date --rfc-email -d "12:00 %" > "$DATES"
 
 # extract URLs
-hxselect 'article > a[href]' < src.html \
+hxselect 'article > a[href]' < "$SRC" \
 | sed -E 's/">[[:space:]]+<\/a>[[:space:]]*/\n/g' \
-| sed 's/^<a href="//' > URLs
+| sed 's/^<a href="//' > "$URLs"
 
 # current time stamp
 NOW=$(date --rfc-email)
@@ -50,7 +60,7 @@ cat <<EOF
 EOF
 
 # RSS body
-paste dates titles URLs | awk -F $'\t' '
+paste "$DATES" "$TITLES" "$URLs" | awk -F $'\t' '
 {
 	print "<item>"
 	print "  <title>" $2 "</title>"
