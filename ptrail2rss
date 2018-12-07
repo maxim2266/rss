@@ -1,0 +1,63 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+# URL
+BASE_URL=https://www.the-paper-trail.org
+# URL=$BASE_URL
+URL=in.html
+
+# process web page
+hxnormalize -s -x -l 1000000 $URL \
+| sed 's/&nbsp;|\?//g' \
+| hxselect '.post-preview' \
+| hxremove '.fa-clock-o,.fa-calendar-o,.post-read-more,.post-entry'	\
+| sed '/^[[:space:]]*$/d' \
+| tr -s $'\n' $' ' > src.html
+
+# extract titles
+hxextract '.post-title' src.html \
+| sed 's/[[:space:]]*<\/h2>[[:space:]]*/\n/g' \
+| sed -E 's/^[[:space:]]*[^>]+>[[:space:]]*(.+)$/\1/' \
+| sed -E 's/[[:space:]]+/ /g' > titles
+
+# extract publication dates
+hxselect -c '.post-meta' < src.html \
+| tr -s $')' $'\n' \
+| grep -oE '[A-Z][a-z]+ [[:digit:]]{1,2}, 20[[:digit:]]{2}'	\
+| xargs -n 1 -L 1 -I % date --rfc-email -d "%" > dates
+
+# extract URLs
+hxselect 'article > a[href]' < src.html \
+| sed -E 's/">[[:space:]]+<\/a>[[:space:]]*/\n/g' \
+| sed 's/^<a href="//' > URLs
+
+# current time stamp
+NOW=$(date --rfc-email)
+
+# RSS header
+cat <<EOF
+<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+  <title>The Paper Trail</title>
+  <link>$BASE_URL/</link>
+  <description>Distributed systems and data processing</description>
+  <language>en-us</language>
+  <pubDate>$NOW</pubDate>
+  <lastBuildDate>$NOW</lastBuildDate>
+  <generator>$(basename "$0")</generator>
+EOF
+
+# RSS body
+paste dates titles URLs | awk -F $'\t' '
+{
+	print "<item>"
+	print "  <title>" $2 "</title>"
+	print "  <link>" $3 "</link>"
+	print "  <pubDate>" $1 "</pubDate>"
+	print "  <guid>" $3 "</guid>"
+	print "</item>"
+}
+
+END { print "</channel></rss>" }'

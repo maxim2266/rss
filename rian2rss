@@ -1,0 +1,99 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+# URL
+BASE_URL=https://ria.ru
+URL=$BASE_URL/archive/more.html
+# URL=in.html
+
+# time zome offset
+MSK_OFFSET=$(TZ="Europe/Moscow" date +%:z)
+
+# current time stamp
+NOW=$(date --rfc-email)
+
+# XML header
+cat <<EOF
+<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+  <title>РИА Новости</title>
+  <link>$BASE_URL/</link>
+  <description>Новости</description>
+  <language>ru</language>
+  <pubDate>$NOW</pubDate>
+  <lastBuildDate>$NOW</lastBuildDate>
+  <generator>$(basename "$0")</generator>
+EOF
+
+# process web page and generate XML body
+hxnormalize -s -x -l 1000000 $URL \
+| hxselect -c 'html > body > div' \
+| hxremove '.list-item__image,.list-tags,.list-item__tags' \
+| sed '/^[[:space:]]*$/d' \
+| hxpipe \
+| awk -O -v BASE_URL=$BASE_URL -v MSK_OFFSET=$MSK_OFFSET '
+$1 == "-\\n" { next }
+
+$1 == "Aclass" && $2 == "CDATA" && match($3, /^list-item__([a-zA-Z]+)$/, m) {
+	state = m[1]
+	next
+}
+
+state == "content" && $1 == "Ahref" && $2 == "CDATA" {
+	link = BASE_URL ($3 ~ /^\// ? "" : "/") $3
+
+	# use the first part of the link as date
+	if(match($3, /^\/(20[0-9]{2})([0-9]{2})([0-9]{2})\//, m) == 0)
+		exit 1
+
+	# prepare for --rfc-3339: 2006-08-14 02:34:56-06:00
+	date = m[1] "-" m[2] "-" m[3]
+	next
+}
+
+state == "title" && /^-/ {
+	title = substr($0, 2)
+	next
+}
+
+state == "date" && $0 ~ /^-[0-9]{2}:[0-9]{2}$/ {
+	time = substr($0, 2) ":00 " MSK_OFFSET
+	next
+}
+
+state == "date" && $1 == ")div" {
+	# convert to local time
+	cmd = "date --rfc-email --date=\"" date " " time "\""
+
+	if((cmd | getline ts) <= 0 || close(cmd) != 0)
+		exit 1
+
+	# printout
+	print "<item>"
+	print "  <title>" title "</title>"
+	print "  <link>" link "</link>"
+	print "  <description>" title "</description>"
+	print "  <pubDate>" ts "</pubDate>"
+	print "  <guid>" link "</guid>"
+	print "</item>"
+
+# 	print "---"
+# 	print title
+# 	print ts
+# 	print link
+
+	state = link = date = time = ""
+	next
+}'
+
+# XML footer
+echo '</channel></rss>'
+
+# Remarks:
+# - URL: https://ria.ru/archive/more.html?date=20180318T160900 works just fine, the date
+#   is that of the most recent news item;
+# - News URL: /society/20180318/1516656822.html gives so called "data_article_id" in the file name;
+# - Typical URL: https://ria.ru/archive/more.html?id=1516688311&date=20180318T213911&is_image=1&is_statistic=1&is_announce=0
+
