@@ -1,0 +1,64 @@
+#!/bin/bash
+
+set -e
+set -o pipefail
+
+# URL
+URL=https://blog.cloudflare.com/
+#URL=cloud.html
+
+# current timestamp
+NOW="$(date --rfc-email)"
+
+# header
+cat <<EOF
+<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+<title>CloudFlare blog</title>
+<link>$URL</link>
+<description>CloudFlare blog</description>
+<language>en-us</language>
+<pubDate>$NOW</pubDate>
+<lastBuildDate>$NOW</lastBuildDate>
+<generator>$(basename "$0")</generator>
+
+EOF
+
+hxnormalize -s -x -e -l 1000000 "$URL" \
+| hxselect -c article.post \
+| hxselect -c header, div.post-excerpt	\
+| hxpipe	\
+| grep -E '^(-[[:alnum:]]|A(href|datetime) CDATA )' \
+| hxunent -bf	\
+| nl -n ln -v 0	\
+| while IFS=$'\t' read -r no line
+do
+	case $(($no % 7)) in
+		0)	line=${line#'Ahref CDATA '}
+			line=${URL%%'/'}/${line##'/'}
+			echo '<item>'
+			echo '<link>'$line'</link>'
+			echo '<guid>'$line'</guid>'
+			;;
+		1)	echo '<title>'${line:1}'</title>'
+			;;
+		2)	line=$(sed -E 's/([[:space:]]([[:digit:]]{1,2})(st|nd|rd|th),)/ \2,/' <<< ${line#'Adatetime CDATA '})
+			echo '<pubDate>'$(date --rfc-email -d "$line")'</pubDate>'
+			;;
+		3)	# skip: date text
+			;;
+		4)	# skip: author URL
+			;;
+		5)	# skip: author
+			;;
+		6) 	echo '<description>'$(sed -E 's/\.…/\.\.\./g' <<< ${line:1})'</description>'
+			echo '</item>'$'\n'
+			;;
+		*)	echo "ERROR: Unexpected line $(($no % 7)):" $line >&2
+			exit 1
+			;;
+	esac
+done
+
+echo "</channel></rss>"
