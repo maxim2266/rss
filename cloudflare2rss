@@ -39,7 +39,7 @@ EOF
 
 # helper functions
 fix_text() {
-	hxunent -bf | sed "s/&#x27;/'/g"
+	hxunent -bf | sed "s/&#x27;/'/g" | sed -E 's/[[:space:]]+/ /g'
 }
 
 fix_timestamp() {
@@ -54,7 +54,7 @@ take() {
 paste -d '\n'	\
 	<(take .post-header \> .title \> a | fix_text)	\
 	<(take .post-header \> .title \> a::attr\(href\))	\
-	<(take .post-excerpt \> p | fix_text | sed -E 's/\.…/\.\.\./g')	\
+	<(take .post-excerpt \> p | fix_text | sed -E 's/\.+…/…/g')	\
 	<(date --rfc-email -f <(take .meta \> time | fix_timestamp))	\
 | nl -n ln -v 0	\
 | while IFS=$'\t' read -r no line
@@ -71,8 +71,6 @@ do
 			;;
 		3)	echo '<pubDate>'$line'</pubDate>'
 			echo '</item>'$'\n'
-			;;
-		*)	echo "ERROR: Unexpected line $(($no % 4)):" $line >&2
 			;;
 	esac
 done
