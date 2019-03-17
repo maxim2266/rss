@@ -1,73 +1,80 @@
 #!/bin/bash
+
 set -e
 set -o pipefail
 
 # URL
-BASE_URL=https://www.the-paper-trail.org
-URL=$BASE_URL
-# URL=in.html
+URL=https://www.the-paper-trail.org
 
-# temporary files
-TMP="$(mktemp -d)"
+# download page
+SRC="$(mktemp)"
 
-trap 'rm -rf "$TMP"' EXIT SIGTERM SIGINT SIGQUIT SIGHUP
+trap 'rm -f "$SRC"' EXIT SIGTERM SIGINT SIGQUIT SIGHUP
 
-SRC="$TMP/src.html"
-TITLES="$TMP/titles"
-DATES="$TMP/dates"
-URLs="$TMP/URLs"
+hxnormalize -s -x -l 1000000 "$URL" 	\
+| hxselect .post-preview	\
+| hxremove .the-big-idea, .alert	\
+| hxremove script, .twitter-tweet	\
+| sed 's/&nbsp;|\?//g'	\
+> "$SRC"
 
-# process web page
-hxnormalize -s -x -l 1000000 $URL \
-| sed 's/&nbsp;|\?//g' \
-| hxselect '.post-preview' \
-| hxremove '.fa-clock-o,.fa-calendar-o,.post-read-more,.post-entry'	\
-| sed '/^[[:space:]]*$/d' \
-| tr -s $'\n' $' ' > "$SRC"
+# debug
+#SRC=src.html
 
-# extract titles
-hxextract '.post-title' "$SRC" \
-| sed 's/[[:space:]]*<\/h2>[[:space:]]*/\n/g' \
-| sed -E 's/^[[:space:]]*[^>]+>[[:space:]]*(.+)$/\1/' \
-| sed -E 's/[[:space:]]+/ /g' > "$TITLES"
+# current timestamp
+NOW="$(date --rfc-email)"
 
-# extract publication dates
-hxselect -c '.post-meta' < "$SRC" \
-| tr -s $')' $'\n' \
-| grep -oE '[A-Z][a-z]+ [[:digit:]]{1,2}, 20[[:digit:]]{2}'	\
-| TZ="America/New_York" xargs -n 1 -L 1 -I % date --rfc-email -d "12:00 %" > "$DATES"
-
-# extract URLs
-hxselect 'article > a[href]' < "$SRC" \
-| sed -E 's/">[[:space:]]+<\/a>[[:space:]]*/\n/g' \
-| sed 's/^<a href="//' > "$URLs"
-
-# current time stamp
-NOW=$(date --rfc-email)
-
-# RSS header
+# header
 cat <<EOF
 <?xml version="1.0"?>
 <rss version="2.0">
 <channel>
-  <title>The Paper Trail</title>
-  <link>$BASE_URL</link>
-  <description>Distributed systems and data processing</description>
-  <language>en-us</language>
-  <pubDate>$NOW</pubDate>
-  <lastBuildDate>$NOW</lastBuildDate>
-  <generator>$(basename "$0")</generator>
+<title>The Paper Trail</title>
+<link>$URL</link>
+<description>Distributed systems and data processing</description>
+<language>en-us</language>
+<pubDate>$NOW</pubDate>
+<lastBuildDate>$NOW</lastBuildDate>
+<generator>$(basename "$0")</generator>
+
 EOF
 
-# RSS body
-paste "$DATES" "$TITLES" "$URLs" | awk -F $'\t' '
-{
-	print "<item>"
-	print "  <title>" $2 "</title>"
-	print "  <link>" $3 "</link>"
-	print "  <pubDate>" $1 "</pubDate>"
-	print "  <guid>" $3 "</guid>"
-	print "</item>"
+# helper functions
+take() {
+	hxselect -c -s '\n' "$@" < "$SRC"
 }
 
-END { print "</channel></rss>" }'
+fix_text() {
+	hxunent -bf | sed -E -e 's/[[:space:]]+/ /g'
+}
+
+extract_dates() {
+	hxremove .fa	\
+	| grep -oE '[A-Z][a-z]+ [[:digit:]]{1,2}, 20[[:digit:]]{2}'	\
+	| TZ="America/New_York" xargs -n 1 -L 1 -I % date --rfc-email -d "12:00 %"
+}
+
+# process source file
+paste -d '\n'	\
+	<(take .post-title | fix_text)	\
+	<(take .post-read-more::attr\(href\))	\
+	<(take .post-preview \> .post-meta | extract_dates)	\
+| nl -n ln -v 0	\
+| while IFS=$'\t' read -r no line
+do
+	case $(($no % 3)) in
+		0)	echo '<item>'
+			echo "<title>$line</title>"
+			;;
+		1)	line=${URL%%'/'}/${line##'/'}
+			echo "<link>$line</link>"
+			echo "<guid>$line</guid>"
+			;;
+		2)	echo "<pubDate>$line</pubDate>"
+			echo '</item>'$'\n'
+			;;
+	esac
+done
+
+# close tags
+echo "</channel></rss>"
