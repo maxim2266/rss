@@ -66,8 +66,7 @@ do
 		0)	echo '<item>'
 			echo "<title>$line</title>"
 			;;
-		1)	line=${URL%%'/'}/${line##'/'}
-			echo "<link>$line</link>"
+		1)	echo "<link>$line</link>"
 			echo "<guid>$line</guid>"
 			;;
 		2)	echo "<pubDate>$line</pubDate>"
