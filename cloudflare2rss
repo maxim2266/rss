@@ -5,7 +5,19 @@ set -o pipefail
 
 # URL
 URL=https://blog.cloudflare.com/
-#URL=cloud.html
+
+# download page
+SRC="$(mktemp)"
+
+trap 'rm -f "$SRC"' EXIT SIGTERM SIGINT SIGQUIT SIGHUP
+
+hxnormalize -s -x -e -l 1000000 "$URL"	\
+| hxselect -c article.post	\
+| hxremove footer	\
+> "$SRC"
+
+# debug
+#SRC=temp.html
 
 # current timestamp
 NOW="$(date --rfc-email)"
@@ -25,40 +37,45 @@ cat <<EOF
 
 EOF
 
-hxnormalize -s -x -e -l 1000000 "$URL" \
-| hxselect -c article.post \
-| hxselect -c header, div.post-excerpt	\
-| hxpipe	\
-| grep -E '^(-[[:alnum:]]|A(href|datetime) CDATA )' \
-| hxunent -bf	\
+# helper functions
+fix_text() {
+	hxunent -bf | sed "s/&#x27;/'/g"
+}
+
+fix_timestamp() {
+	sed -E 's/([[:space:]]([[:digit:]]{1,2})(st|nd|rd|th),)/ \2,/'
+}
+
+take() {
+	hxselect -c -s '\n' "$@" < "$SRC"
+}
+
+# process source file
+paste -d '\n'	\
+	<(take .post-header \> .title \> a | fix_text)	\
+	<(take .post-header \> .title \> a::attr\(href\))	\
+	<(take .post-excerpt \> p | fix_text | sed -E 's/\.…/\.\.\./g')	\
+	<(date --rfc-email -f <(take .meta \> time | fix_timestamp))	\
 | nl -n ln -v 0	\
 | while IFS=$'\t' read -r no line
 do
-	case $(($no % 7)) in
-		0)	line=${line#'Ahref CDATA '}
-			line=${URL%%'/'}/${line##'/'}
-			echo '<item>'
+	case $(($no % 4)) in
+		0)	echo '<item>'
+			echo '<title>'$line'</title>'
+			;;
+		1)	line=${URL%%'/'}/${line##'/'}
 			echo '<link>'$line'</link>'
 			echo '<guid>'$line'</guid>'
 			;;
-		1)	echo '<title>'${line:1}'</title>'
+		2)	echo '<description>'$line'</description>'
 			;;
-		2)	line=$(sed -E 's/([[:space:]]([[:digit:]]{1,2})(st|nd|rd|th),)/ \2,/' <<< ${line#'Adatetime CDATA '})
-			echo '<pubDate>'$(date --rfc-email -d "$line")'</pubDate>'
-			;;
-		3)	# skip: date text
-			;;
-		4)	# skip: author URL
-			;;
-		5)	# skip: author
-			;;
-		6) 	echo '<description>'$(sed -E 's/\.…/\.\.\./g' <<< ${line:1})'</description>'
+		3)	echo '<pubDate>'$line'</pubDate>'
 			echo '</item>'$'\n'
 			;;
-		*)	echo "ERROR: Unexpected line $(($no % 7)):" $line >&2
-			exit 1
+		*)	echo "ERROR: Unexpected line $(($no % 4)):" $line >&2
 			;;
 	esac
 done
 
+# close tags
 echo "</channel></rss>"
