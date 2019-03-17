@@ -39,7 +39,7 @@ EOF
 
 # helper functions
 fix_text() {
-	hxunent -bf | sed "s/&#x27;/'/g" | sed -E 's/[[:space:]]+/ /g'
+	hxunent -bf | sed -E -e "s/&#x27;/'/g" -e 's/[[:space:]]+/ /g'
 }
 
 fix_timestamp() {
@@ -61,15 +61,15 @@ paste -d '\n'	\
 do
 	case $(($no % 4)) in
 		0)	echo '<item>'
-			echo '<title>'$line'</title>'
+			echo "<title>$line</title>"
 			;;
 		1)	line=${URL%%'/'}/${line##'/'}
-			echo '<link>'$line'</link>'
-			echo '<guid>'$line'</guid>'
+			echo "<link>$line</link>"
+			echo "<guid>$line</guid>"
 			;;
-		2)	echo '<description>'$line'</description>'
+		2)	echo "<description>$line</description>"
 			;;
-		3)	echo '<pubDate>'$line'</pubDate>'
+		3)	echo "<pubDate>$line</pubDate>"
 			echo '</item>'$'\n'
 			;;
 	esac
