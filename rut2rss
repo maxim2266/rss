@@ -43,7 +43,7 @@ titles() {
 	take -s $'\x1F' 'td > div.torTopic > a'	\
 	| awk -v RS=$'\x1F' '{
 		gsub(/\><wbr><\/wbr>\s+\</, "")
-		gsub(/<wbr><\/wbr>\s+/, " ")
+		gsub(/<wbr><\/wbr>/, "")
 		gsub(/\s+/, " ")
 		print
 	}'	\
