@@ -63,7 +63,7 @@ paste -d '\n'	\
 | nl -n ln -v 0	\
 | while IFS=$'\t' read -r no line
 do
-	case $(($no % 3)) in
+	case $((no % 3)) in
 		0)	echo '<item>'
 			echo "<title>$line</title>"
 			;;
